@@ -1,8 +1,6 @@
 name: release
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch: 
 env:
   CGO_CFLAGS: '-O3'
   CGO_CXXFLAGS: '-O3'
