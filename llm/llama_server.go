@@ -347,6 +347,7 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 
 	params = appendMMProjArgs(params, launch)
 	params = appendMTPDraftArgs(params, launch.config, launch.opts)
+	params = appendNgramSpecArgs(params)
 
 	params = append(params, qwenVLServerArgs(launch.modelArch)...)
 
@@ -686,6 +687,55 @@ func appendMTPDraftArgs(params []string, config LlamaServerConfig, opts api.Opti
 	if config.DraftModelPath != "" {
 		params = append(params, "--spec-draft-model", config.DraftModelPath)
 	}
+	return params
+}
+
+// appendNgramSpecArgs adds ngram-mod and ngram-map-k speculative decoding
+// parameters. ngram-mod uses a shared hash pool to predict tokens based on
+// previously seen n-gram patterns, effective for coding tasks and reasoning
+// models. ngram-map-k uses an internal hash-map of n-grams in the context
+// window, which is effective for code rewriting and repetitive patterns.
+// Both approaches require no draft model and complement each other.
+func appendNgramSpecArgs(params []string) []string {
+	// Check if --spec-type is already present and append ngram types to the
+	// comma-separated list; otherwise add a new --spec-type flag.
+	specTypeIdx := -1
+	for i, p := range params {
+		if p == "--spec-type" && i+1 < len(params) {
+			specTypeIdx = i + 1
+			break
+		}
+	}
+
+	if specTypeIdx >= 0 {
+		params[specTypeIdx] = params[specTypeIdx] + ",ngram-mod,ngram-map-k"
+	} else {
+		params = append(params, "--spec-type", "ngram-mod,ngram-map-k")
+	}
+
+	// ngram-mod tuned defaults for coding / general conversation:
+	// - n-match 24: size of the n-gram key for hash lookups
+	// - n-min 48: minimum draft length
+	// - n-max 64: maximum draft length (allows long speculative sequences)
+	params = append(params,
+		"--spec-ngram-mod-n-match", "24",
+		"--spec-ngram-mod-n-min", "48",
+		"--spec-ngram-mod-n-max", "64",
+	)
+
+	// ngram-map-k: maximum draft length for the map-based approach
+	// (only add if not already set by draft model args)
+	hasDraftNMax := false
+	for _, p := range params {
+		if p == "--spec-draft-n-max" {
+			hasDraftNMax = true
+			break
+		}
+	}
+	if !hasDraftNMax {
+		params = append(params, "--spec-draft-n-max", "64")
+	}
+
 	return params
 }
 
